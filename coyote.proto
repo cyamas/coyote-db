@@ -1,0 +1,115 @@
+syntax = "proto3";
+option go_package = "github.com/cyamas/coyote-db";
+
+message SetRequest {
+	string key = 1;
+	oneof value {
+		string strVal = 2;
+		int64 intVal = 3;
+		double floatVal = 4;
+		bool boolVal = 5;
+		StringArray strArr = 6;
+		IntArray intArr = 7;
+		FloatArray floatArr = 8;
+		BoolArray boolArr = 9;
+	}
+}
+
+message SetResponse {
+	string stub = 1;
+}
+
+message GetRequest {
+	string key = 1;
+}
+
+message GetResponse {
+	oneof value {
+		string strVal = 1;
+		int64 intVal = 2;
+		double floatVal = 3;
+		bool boolVal = 4;
+		StringArray strArr = 5;
+		IntArray intArr = 6;
+		FloatArray floatArr = 7;
+		BoolArray boolArr = 8;
+	}
+}
+
+message DelRequest {
+	string key = 1; 
+}
+
+message DelResponse {
+	string stub = 1;
+}
+
+message StringArray {
+	repeated string val = 1;
+}
+
+message IntArray {
+	repeated int64 val = 1;
+}
+
+message FloatArray {
+	repeated double val = 1;
+}
+
+
+message BoolArray {
+	repeated bool val = 1;
+}
+
+
+enum CommandType {
+	SET = 0;
+	UPDATE = 1;
+	DELETE = 2;
+}
+
+message Entry {
+	int64 id = 1;
+	int64 term = 2;
+	CommandType command = 3;
+	string key = 4;
+	bytes value = 5;
+}
+
+message Entries {
+	repeated Entry entry = 1;
+}
+
+message AppendEntriesRequest {
+	int64 term = 1;
+	int64 leaderID = 2;
+	int64 prevLogIndex = 3;
+	int64 prevLogTerm = 4;
+	Entries entries = 5;
+	int64 leaderCommit = 6;
+}
+
+message AppendEntriesResponse {
+	int64 term = 1;
+	bool success = 2;
+}
+
+message VoteRequest {
+	int64 term = 1;
+	int64 candidateID = 2;
+	int64 lastLogIndex = 3;
+	int64 lastLogTerm = 4;
+}
+
+message VoteResponse {
+	int64 term = 1;
+	bool voteGranted = 2;
+}
+
+service Store {
+	rpc AppendEntries(AppendEntriesRequest) returns (AppendEntriesResponse);
+	rpc RequestVote(VoteRequest) returns (VoteResponse);
+	rpc Set(SetRequest) returns (SetResponse);
+	rpc Get(GetRequest) returns (GetResponse);
+	rpc Del(DelRequest) returns (DelResponse);
+}
