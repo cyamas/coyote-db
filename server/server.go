@@ -45,6 +45,7 @@ type Server struct {
 	clusterCh      chan string
 	heartbeatTimer *time.Timer
 	leaderCh       chan bool
+	clientCh       chan *coyote_db.Entry
 	mu             sync.Mutex
 }
 
@@ -53,11 +54,12 @@ func New(addrIdx int, clusterAddrs []string, clusterCh chan string) *Server {
 		id:           int64(addrIdx),
 		addr:         clusterAddrs[addrIdx],
 		clusterAddrs: clusterAddrs,
-		log:          log.Init("./test/filepath.json"),
+		log:          log.Init("./placeholder_filepath.json"),
 		clusterConns: make(map[int64]*grpc.ClientConn),
 		clusterCh:    clusterCh,
 		votedFor:     -1,
 		leaderCh:     make(chan bool),
+		clientCh:     make(chan *coyote_db.Entry, 10),
 	}
 }
 
@@ -74,12 +76,30 @@ func (s *Server) Start() error {
 func (s *Server) Run() {
 	for {
 		if s.rank == LEADER {
-			time.Sleep(heartbeatInterval)
-			s.sendHeartbeat()
+			nextHeartbeat := time.NewTimer(heartbeatInterval)
+			select {
+			case <-nextHeartbeat.C:
+				s.sendHeartbeat()
+			case entry := <-s.clientCh:
+				entries := []*coyote_db.Entry{entry}
+				batchTimeout := time.After(10 * time.Millisecond)
+				for {
+					select {
+					case entry := <-s.clientCh:
+						entries = append(entries, entry)
+					case <-batchTimeout:
+						s.sendEntries(entries)
+						break
+					}
+				}
+			}
 		} else {
 			s.startHeartbeatTimer()
 		}
 	}
+}
+
+func (s *Server) sendEntries(entries []*coyote_db.Entry) {
 }
 
 func (s *Server) ConnectToClustermates() {
@@ -179,12 +199,43 @@ func (s *Server) sendHeartbeat() {
 	}
 }
 
+/*
+1. if AppendEntriesRequest has lower term than s.currentTerm -> return false
+2. if a log doesn't exist in the server -> return false
+3. if the req.Term doesn't match on the entry at prevlogindex -> delete all entries at and after req.prevLogIndex and return false
+4. send on leaderCh to stop any potential election happening, update state to match leader, and return a success response
+*/
 func (s *Server) AppendEntries(ctx context.Context, req *coyote_db.AppendEntriesRequest) (*coyote_db.AppendEntriesResponse, error) {
+	resp := &coyote_db.AppendEntriesResponse{}
+	if req.Term < s.currentTerm {
+		resp.Term = s.currentTerm
+		resp.Success = false
+		return resp, nil
+	}
+	prevLogIndex := int(req.PrevLogIndex)
+	if prevLogIndex > len(s.log.Entries)-1 {
+		resp.Term = s.currentTerm
+		resp.Success = false
+		return resp, nil
+	}
+
+	if prevLogIndex >= 0 && s.log.Entries[prevLogIndex].Term != req.Term {
+		resp.Term = s.currentTerm
+		resp.Success = false
+		return resp, nil
+	}
+	if req.Entries != nil {
+		s.log.Lock()
+		s.log.Entries = s.log.Entries[:prevLogIndex+1]
+		s.log.Entries = append(s.log.Entries, req.Entries.Entry...)
+		s.log.Unlock()
+	}
 	s.leaderCh <- true
 	s.rank = FOLLOWER
 	s.votedFor = -1
 	s.currentTerm = req.Term
-	resp := &coyote_db.AppendEntriesResponse{Term: s.currentTerm, Success: true}
+	resp.Success = true
+	resp.Term = s.currentTerm
 	return resp, nil
 }
 
