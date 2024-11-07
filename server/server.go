@@ -23,7 +23,7 @@ const (
 )
 
 const (
-	heartbeatInterval = time.Duration(150 * time.Millisecond)
+	heartbeatInterval = time.Duration(100 * time.Millisecond)
 	heartbeatTimeout  = time.Duration(300 * time.Millisecond)
 )
 
@@ -80,6 +80,7 @@ func (s *Server) Run() {
 			select {
 			case <-nextHeartbeat.C:
 				s.sendHeartbeat()
+				return
 			case entry := <-s.clientCh:
 				entries := []*coyote_db.Entry{entry}
 				batchTimeout := time.After(10 * time.Millisecond)
@@ -170,12 +171,13 @@ func (s *Server) triggerElection() {
 				return
 			} else {
 				s.clusterCh <- fmt.Sprintf("Server %d has LOST the election", s.id)
+				s.votedFor = -1
+				s.rank = FOLLOWER
 				cancel()
 				return
 
 			}
 		}
-
 	}
 }
 
